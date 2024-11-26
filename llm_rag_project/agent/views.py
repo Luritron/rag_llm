@@ -77,7 +77,7 @@ def search_online_google(question):
         "key": "AIzaSyAQ5oVwP1gJlEdWmdfUa_HCyRPe8kDvdoc",
         "cx": "6470dd1c7d98d4897",
         "q": question,
-        "num": 1,  # Количество результатов
+        "num": 5,  # Количество результатов
     }
 
     response = requests.get(endpoint, params=params)
@@ -123,38 +123,6 @@ rag_chain = (
 )
 
 
-# Обработка вопросов через API
-# @api.post("/ask")
-# def ask_question(request, payload: QuestionSchema):
-#     question = payload.question
-#     context = retriever.get_relevant_documents(question)
-#
-#     # Сбор текста из базы данных
-#     rag_answer = ""
-#     for chunk in rag_chain.stream(question):
-#         rag_answer += chunk.content
-#
-#     # prompt = build_prompt(rag_answer, question)
-#     # response = llm.generate([[HumanMessage(content=prompt)]])
-#     print(f"RAG Answer: {rag_answer.strip()}")
-#
-#     # Проверка ответа из базы данных
-#     if is_rag_answer_unavailable(rag_answer):
-#         print("No relevant data found in the database. Searching online...")
-#         internet_context = search_online_google(question)
-#         if internet_context:
-#             prompt = build_prompt(internet_context, question)
-#             response = llm.generate([[HumanMessage(content=prompt)]])
-#             print(response)
-#             return {"source": "internet", "answer": response.generations[0][0].text}
-#         return {"source": "none", "answer": "No relevant information found online."}
-#
-#     # Генерация ответа из базы данных
-#     prompt = build_prompt(rag_answer, question)
-#     response = llm.generate([[HumanMessage(content=prompt)]])
-#     print(response)
-#     return {"source": "database", "answer": response.generations[0][0].text}
-
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
     question = payload.question
@@ -172,12 +140,22 @@ def ask_question(request, payload: QuestionSchema):
         internet_context = search_online_google(question)
         if internet_context:
             # Генерация ответа на основе найденного контекста из интернета
-            internet_prompt = build_prompt(internet_context, question)
+            internet_prompt = (
+                f"Based on the following context from the internet, answer the question:\n\n"
+                f"CONTEXT:\n{internet_context}\n\nQUESTION: {question}\n"
+                f"Please provide a detailed and helpful answer."
+            )
             try:
                 response = llm.generate([[HumanMessage(content=internet_prompt)]])
-                internet_answer = response.generations[0][0].text
-                print(f"Internet Answer: {internet_answer.strip()}")
-                return {"source": "internet", "answer": internet_answer.strip()}
+                internet_answer = response.generations[0][0].text.strip()
+
+                # Проверка на случай, если ответ всё ещё "unable to find an answer"
+                if is_rag_answer_unavailable(internet_answer):
+                    print(f"Internet Answer is invalid: {internet_answer}")
+                    return {"source": "none", "answer": "No relevant information found online."}
+
+                print(f"Internet Answer: {internet_answer}")
+                return {"source": "internet", "answer": internet_answer}
             except Exception as e:
                 print(f"Error during LLM generation: {e}")
                 return {"source": "none", "answer": "Failed to generate an answer from internet context."}
@@ -186,11 +164,21 @@ def ask_question(request, payload: QuestionSchema):
 
     # Если ответ из базы данных релевантен
     try:
-        db_prompt = build_prompt(rag_answer, question)
+        db_prompt = (
+            f"Based on the following context from the database, answer the question:\n\n"
+            f"CONTEXT:\n{rag_answer}\n\nQUESTION: {question}\n"
+            f"Please provide a detailed and helpful answer."
+        )
         db_response = llm.generate([[HumanMessage(content=db_prompt)]])
-        db_answer = db_response.generations[0][0].text
-        print(f"Database Answer: {db_answer.strip()}")
-        return {"source": "database", "answer": db_answer.strip()}
+        db_answer = db_response.generations[0][0].text.strip()
+
+        # Проверка на случай, если ответ из базы данных некорректен
+        if is_rag_answer_unavailable(db_answer):
+            print(f"Database Answer is invalid: {db_answer}")
+            return {"source": "none", "answer": "No relevant information found online."}
+
+        print(f"Database Answer: {db_answer}")
+        return {"source": "database", "answer": db_answer}
     except Exception as e:
         print(f"Error during LLM generation: {e}")
         return {"source": "none", "answer": "Failed to generate an answer from database context."}
