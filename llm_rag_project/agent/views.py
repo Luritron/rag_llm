@@ -52,6 +52,13 @@ QUESTION: {question}
 ANSWER:"""
 prompt = ChatPromptTemplate.from_template(template)
 
+# Create the RAG chain using LCEL with prompt printing and streaming output
+rag_chain = (
+    {"context": retriever, "question": RunnablePassthrough()}
+    | prompt
+    | llm
+)
+
 # Шаблон для обработки контекста
 def build_prompt(context, question):
     return (
@@ -99,29 +106,6 @@ def is_rag_answer_unavailable(answer):
     ]
     # Проверяем наличие любой из ключевых фраз в ответе
     return any(phrase in answer.lower() for phrase in negative_responses)
-
-template = """<bos><start_of_turn>user\nAnswer the question based only on the following context and extract out a meaningful answer. \
-Please write in full sentences with correct spelling and punctuation. if it makes sense use lists. \
-Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text and gaps, spaces, symblos of \"\\n"\".\
-Just a short and fully clear "unable to find an answer" answer.\
-
-CONTEXT: {context}
-
-QUESTION: {question}
-
-<end_of_turn>
-<start_of_turn>model\n
-ANSWER:"""
-
-prompt = ChatPromptTemplate.from_template(template)
-
-# Create the RAG chain using LCEL with prompt printing and streaming output
-rag_chain = (
-    {"context": retriever, "question": RunnablePassthrough()}
-    | prompt
-    | llm
-)
-
 
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
