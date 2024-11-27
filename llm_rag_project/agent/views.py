@@ -40,7 +40,7 @@ llm = ChatOllama(model=local_llm,
 
 # Create prompt template
 template = """<bos><start_of_turn>user\nAnswer the question based only on the following context and extract out a meaningful answer. \
-Please write in full sentences with correct spelling and punctuation. if it makes sense use lists. \
+Please write in full sentences with correct spelling, punctuation. if it makes sense use lists. \
 Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text.\
 
 CONTEXT: {context}
@@ -64,8 +64,7 @@ def build_prompt(context, question):
     return (
         f"""<bos><start_of_turn>user\nAnswer the question based only on the following context and extract out a meaningful answer. \
         Please write in full sentences with correct spelling and punctuation. if it makes sense use lists. \
-        Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text and gaps, spaces, symblos of \"\\n"\".\
-        Just a short and fully clear "unable to find an answer" answer.\n\n\
+        Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text.\
         CONTEXT: {context}
 
         QUESTION: {question}
