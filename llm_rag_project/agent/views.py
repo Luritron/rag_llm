@@ -1,4 +1,5 @@
 import requests
+import re
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOllama
@@ -40,7 +41,7 @@ llm = ChatOllama(model=local_llm,
 
 # Create prompt template
 template = """<bos><start_of_turn>user\nAnswer the question based only on the following context and extract out a meaningful answer. \
-Please write in full sentences with correct spelling, punctuation. if it makes sense use lists. \
+Please write in full sentences with correct spelling and punctuation. if it makes sense use lists. \
 Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text.\
 
 CONTEXT: {context}
@@ -64,7 +65,8 @@ def build_prompt(context, question):
     return (
         f"""<bos><start_of_turn>user\nAnswer the question based only on the following context and extract out a meaningful answer. \
         Please write in full sentences with correct spelling and punctuation. if it makes sense use lists. \
-        Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text.\
+        Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text and gaps, spaces, symblos of \"\\n"\".\
+        Just a short and fully clear "unable to find an answer" answer.\n\n\
         CONTEXT: {context}
 
         QUESTION: {question}
@@ -106,6 +108,27 @@ def is_rag_answer_unavailable(answer):
     # Проверяем наличие любой из ключевых фраз в ответе
     return any(phrase in answer.lower() for phrase in negative_responses)
 
+def format_llm_answer(answer):
+    # Преобразование заголовков (например, ## -> <h2>)
+    answer = re.sub(r"^(##)(\s+)(.*)$", r"<h2>\3</h2>", answer, flags=re.MULTILINE)
+    answer = re.sub(r"^(#)(\s+)(.*)$", r"<h1>\3</h1>", answer, flags=re.MULTILINE)
+
+    # Преобразование жирного текста (например, **текст** -> <strong>текст</strong>)
+    answer = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", answer)
+
+    # Преобразование списков: добавление переноса строки перед элементами списка
+    answer = re.sub(r"(\S)\s*\* ", r"\1<br>* ", answer)  # Если элемент списка идёт подряд с текстом
+    answer = re.sub(r"^\*\s*(.*)$", r"<br>* \1", answer, flags=re.MULTILINE)  # Для элементов списка на новой строке
+
+    # Преобразование нумерованных списков
+    answer = re.sub(r"^\d+\.\s*(.*)$", r"<br>1. \1", answer, flags=re.MULTILINE)
+
+    # Обработка параграфов (разделение на абзацы)
+    answer = re.sub(r"\n\n", r"</p><p>", answer)
+    answer = f"<p>{answer}</p>"
+
+    return answer
+
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
     question = payload.question
@@ -138,14 +161,17 @@ def ask_question(request, payload: QuestionSchema):
                     return {"source": "none", "answer": "No relevant information found online."}
 
                 print(f"Internet Answer: {internet_answer}")
-                return {"source": "internet", "answer": internet_answer}
+                formatted_answer = format_llm_answer(internet_answer)
+                return {"source": "internet", "answer": formatted_answer}
             except Exception as e:
                 print(f"Error during LLM generation: {e}")
                 return {"source": "none", "answer": "Failed to generate an answer from internet context."}
         else:
             return {"source": "none", "answer": "No relevant information found online."}
 
-    # Если ответ из базы данных релевантен
+    # ?????????????????????????
+    # ????????????????????????? Если ответ из базы данных релевантен
+    # ?????????????????????????
     try:
         db_prompt = (
             f"Based on the following context from the database, answer the question:\n\n"
