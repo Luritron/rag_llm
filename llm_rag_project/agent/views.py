@@ -1,5 +1,6 @@
 import requests
 import re
+from .models import DialogHistory
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOllama
@@ -129,15 +130,35 @@ def format_llm_answer(answer):
 
     return answer
 
+def build_prompt_with_history(messages, context, question):
+    history_content = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+    prompt = (
+        f"Conversation History:\n{history_content}\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question:\n{question}\n\n"
+        f"Please provide a detailed and helpful answer."
+    )
+    return prompt
+
+
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
     question = payload.question
+    user_id = request.headers.get("X-User-ID", "default_user")
+
+    # Сохранение вопроса пользователя в историю
+    DialogHistory.objects.create(user_id=user_id, role="user", content=question)
+
+    # Получение истории диалога
+    dialog_history = DialogHistory.objects.filter(user_id=user_id).order_by("timestamp")
+    messages = [{"role": entry.role, "content": entry.content} for entry in dialog_history]
 
     # Первый шаг: поиск в базе данных через RAG
     rag_answer = ""
     for chunk in rag_chain.stream(question):
         rag_answer += chunk.content
-    print(f"RAG Answer: {rag_answer.strip()}")
+    # formatted_answer = format_llm_answer(rag_answer.strip())
+    # print(f"RAG Answer: {formatted_answer}")
 
     # Проверка на релевантность ответа
     if is_rag_answer_unavailable(rag_answer):
@@ -146,11 +167,7 @@ def ask_question(request, payload: QuestionSchema):
         internet_context = search_online_google(question)
         if internet_context:
             # Генерация ответа на основе найденного контекста из интернета
-            internet_prompt = (
-                f"Based on the following context from the internet, answer the question:\n\n"
-                f"CONTEXT:\n{internet_context}\n\nQUESTION: {question}\n"
-                f"Please provide a detailed and helpful answer."
-            )
+            internet_prompt = build_prompt_with_history(messages, internet_context, question)
             try:
                 response = llm.generate([[HumanMessage(content=internet_prompt)]])
                 internet_answer = response.generations[0][0].text.strip()
@@ -159,6 +176,9 @@ def ask_question(request, payload: QuestionSchema):
                 if is_rag_answer_unavailable(internet_answer):
                     print(f"Internet Answer is invalid: {internet_answer}")
                     return {"source": "none", "answer": "No relevant information found online."}
+
+                # Сохранение ответа модели в историю
+                DialogHistory.objects.create(user_id=user_id, role="model", content=internet_answer)
 
                 print(f"Internet Answer: {internet_answer}")
                 formatted_answer = format_llm_answer(internet_answer)
@@ -173,11 +193,7 @@ def ask_question(request, payload: QuestionSchema):
     # ????????????????????????? Если ответ из базы данных релевантен
     # ?????????????????????????
     try:
-        db_prompt = (
-            f"Based on the following context from the database, answer the question:\n\n"
-            f"CONTEXT:\n{rag_answer}\n\nQUESTION: {question}\n"
-            f"Please provide a detailed and helpful answer."
-        )
+        db_prompt = build_prompt_with_history(messages, rag_answer, question)
         db_response = llm.generate([[HumanMessage(content=db_prompt)]])
         db_answer = db_response.generations[0][0].text.strip()
 
@@ -186,8 +202,12 @@ def ask_question(request, payload: QuestionSchema):
             print(f"Database Answer is invalid: {db_answer}")
             return {"source": "none", "answer": "No relevant information found online."}
 
+        # Сохранение ответа модели в историю
+        DialogHistory.objects.create(user_id=user_id, role="model", content=db_answer)
+
         print(f"Database Answer: {db_answer}")
-        return {"source": "database", "answer": db_answer}
+        formatted_answer = format_llm_answer(db_answer)
+        return {"source": "database", "answer": formatted_answer}
     except Exception as e:
         print(f"Error during LLM generation: {e}")
         return {"source": "none", "answer": "Failed to generate an answer from database context."}
