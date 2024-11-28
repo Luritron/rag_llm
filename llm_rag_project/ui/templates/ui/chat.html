@@ -111,7 +111,8 @@
                 if (response.ok) {
                     const data = await response.json();
                     dialogListContainer.innerHTML = '';
-                    data.dialogs.forEach(dialogId => {
+                    const uniqueDialogs = [...new Set(data.dialogs)]; // Убираем дубли
+                    uniqueDialogs.forEach(dialogId => {
                         const li = document.createElement('li');
                         li.textContent = dialogId;
                         li.addEventListener('click', () => loadDialogMessages(dialogId));

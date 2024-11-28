@@ -167,7 +167,7 @@ def get_dialog_messages(request, dialog_id: str):
     messages = DialogHistory.objects.filter(user_id=user_id, dialog_id=dialog_id).order_by("timestamp")
     return {
         "messages": [
-            {"role": message.role, "content": message.content, "timestamp": message.timestamp}
+            {"role": message.role, "content": format_llm_answer(message.content), "timestamp": message.timestamp}
             for message in messages
         ]
     }
@@ -185,7 +185,10 @@ def ask_question(request, payload: QuestionSchema):
     DialogHistory.objects.create(user_id=user_id, dialog_id=dialog_id, role="user", content=question)
 
     # Получение истории диалога
-    dialog_history = DialogHistory.objects.filter(user_id=user_id).order_by("timestamp")
+    # Получаем полную историю текущего диалога
+    dialog_history = DialogHistory.objects.filter(
+        user_id=user_id, dialog_id=dialog_id
+    ).order_by("timestamp")
     messages = [{"role": entry.role, "content": entry.content} for entry in dialog_history]
 
     # Первый шаг: поиск в базе данных через RAG
