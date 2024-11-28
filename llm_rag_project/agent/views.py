@@ -1,5 +1,6 @@
 import requests
 import re
+import uuid
 from .models import DialogHistory
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -19,6 +20,7 @@ api = NinjaAPI()
 # Pydantic-схема для POST-запроса
 class QuestionSchema(BaseModel):
     question: str
+    dialog_id: str  # Добавляем поле dialog_id
 
 # # Create embeddingsclear
 embeddings = OllamaEmbeddings(model="nomic-embed-text", show_progress=False)
@@ -140,14 +142,47 @@ def build_prompt_with_history(messages, context, question):
     )
     return prompt
 
+@api.get("/dialogs")
+def list_dialogs(request):
+    user_id = request.headers.get("X-User-ID", "default_user")
+    dialogs = (
+        DialogHistory.objects.filter(user_id=user_id)
+        .values("dialog_id")
+        .distinct()
+        .order_by("-timestamp")
+    )
+    return {"dialogs": [dialog["dialog_id"] for dialog in dialogs]}
+
+@api.post("/dialogs/new")
+def start_new_dialog(request):
+    user_id = request.headers.get("X-User-ID", "default_user")
+    dialog_id = str(uuid.uuid4())  # Генерация уникального ID для нового диалога
+    # Создаём первое сообщение для идентификации диалога
+    DialogHistory.objects.create(user_id=user_id, dialog_id=dialog_id, role="system", content="New dialog started.")
+    return {"dialog_id": dialog_id}
+
+@api.get("/dialogs/{dialog_id}")
+def get_dialog_messages(request, dialog_id: str):
+    user_id = request.headers.get("X-User-ID", "default_user")
+    messages = DialogHistory.objects.filter(user_id=user_id, dialog_id=dialog_id).order_by("timestamp")
+    return {
+        "messages": [
+            {"role": message.role, "content": message.content, "timestamp": message.timestamp}
+            for message in messages
+        ]
+    }
 
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
     question = payload.question
+    dialog_id = payload.dialog_id  # Добавляем dialog_id из запроса
     user_id = request.headers.get("X-User-ID", "default_user")
 
+    if not dialog_id:
+        return {"error": "Dialog ID is required."}
+
     # Сохранение вопроса пользователя в историю
-    DialogHistory.objects.create(user_id=user_id, role="user", content=question)
+    DialogHistory.objects.create(user_id=user_id, dialog_id=dialog_id, role="user", content=question)
 
     # Получение истории диалога
     dialog_history = DialogHistory.objects.filter(user_id=user_id).order_by("timestamp")
@@ -178,7 +213,7 @@ def ask_question(request, payload: QuestionSchema):
                     return {"source": "none", "answer": "No relevant information found online."}
 
                 # Сохранение ответа модели в историю
-                DialogHistory.objects.create(user_id=user_id, role="model", content=internet_answer)
+                DialogHistory.objects.create(user_id=user_id, dialog_id=dialog_id, role="model", content=internet_answer)
 
                 print(f"Internet Answer: {internet_answer}")
                 formatted_answer = format_llm_answer(internet_answer)
@@ -203,7 +238,7 @@ def ask_question(request, payload: QuestionSchema):
             return {"source": "none", "answer": "No relevant information found online."}
 
         # Сохранение ответа модели в историю
-        DialogHistory.objects.create(user_id=user_id, role="model", content=db_answer)
+        DialogHistory.objects.create(user_id=user_id, dialog_id=dialog_id, role="model", content=db_answer)
 
         print(f"Database Answer: {db_answer}")
         formatted_answer = format_llm_answer(db_answer)

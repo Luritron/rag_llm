@@ -56,9 +56,33 @@
         button:hover {
             background: darkblue;
         }
+        .dialog-list {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .dialog-list ul {
+            list-style: none;
+            padding: 0;
+        }
+        .dialog-list li {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .dialog-list li:hover {
+            background: #e9e9e9;
+        }
     </style>
 </head>
 <body>
+    <div class="dialog-list" id="dialog-list">
+        <h3>Dialogs</h3>
+        <ul id="dialog-list-container"></ul>
+        <button id="new-dialog-btn">Start New Dialog</button>
+    </div>
+
     <div class="container">
         <h2>Chat with the Model</h2>
         <div class="chat" id="chat-window"></div>
@@ -71,6 +95,78 @@
         const chatWindow = document.getElementById('chat-window');
         const chatForm = document.getElementById('chat-form');
         const userInput = document.getElementById('user-input');
+        const dialogListContainer = document.getElementById('dialog-list-container');
+        const newDialogBtn = document.getElementById('new-dialog-btn');
+        let currentDialogId = null;
+
+        // Загрузка списка диалогов
+        async function loadDialogs() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/dialogs', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    dialogListContainer.innerHTML = '';
+                    data.dialogs.forEach(dialogId => {
+                        const li = document.createElement('li');
+                        li.textContent = dialogId;
+                        li.addEventListener('click', () => loadDialogMessages(dialogId));
+                        dialogListContainer.appendChild(li);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load dialogs:', error);
+            }
+        }
+
+        // Загрузка сообщений диалога
+        async function loadDialogMessages(dialogId) {
+            try {
+                currentDialogId = dialogId;
+                const response = await fetch(`http://127.0.0.1:8000/api/dialogs/${dialogId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    chatWindow.innerHTML = '';
+                    data.messages.forEach(message => {
+                        addMessage(message.content, message.role);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load dialog messages:', error);
+            }
+        }
+
+        // Начало нового диалога
+        newDialogBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/dialogs/new', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    currentDialogId = data.dialog_id;
+                    chatWindow.innerHTML = ''; // Очистка окна чата
+                    loadDialogs(); // Обновление списка диалогов
+                }
+            } catch (error) {
+                console.error('Failed to start a new dialog:', error);
+            }
+        });
+
+        // Инициализация
+        loadDialogs();
 
         // Функция для добавления сообщения в окно чата
         function addMessage(content, sender) {
@@ -84,27 +180,27 @@
 
         // Обработка отправки формы
         chatForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
+            e.preventDefault(); // Предотвращаем перезагрузку страницы
             const question = userInput.value.trim();
-            if (!question) return;
+            if (!question || !currentDialogId) {
+                alert('Please select or start a dialog first.');
+                return;
+            }
 
-            // Добавляем сообщение пользователя в чат
-            addMessage(question, 'user');
+            addMessage(question, 'user'); // Отображаем сообщение пользователя в интерфейсе
             userInput.value = ''; // Очищаем поле ввода
 
-            // Отправляем запрос к API
             try {
                 const response = await fetch('http://127.0.0.1:8000/api/ask', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ question }),
+                    body: JSON.stringify({ question, dialog_id: currentDialogId }),
                 });
-
                 if (response.ok) {
                     const data = await response.json();
-                    addMessage(data.answer, 'model');
+                    addMessage(data.answer, 'model'); // Отображаем ответ модели в интерфейсе
                 } else {
                     addMessage('Error: Could not get a response from the model.', 'model');
                 }
