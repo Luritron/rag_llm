@@ -1,10 +1,15 @@
 import requests
 import re
+import os
 import uuid
+from pathlib import Path
 from .models import DialogHistory
+from django.core.files.storage import default_storage
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOllama
+from langchain_community.document_loaders import DirectoryLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from langchain.schema import HumanMessage
 from langchain.prompts import ChatPromptTemplate
@@ -25,14 +30,14 @@ class QuestionSchema(BaseModel):
 # # Create embeddingsclear
 embeddings = OllamaEmbeddings(model="nomic-embed-text", show_progress=False)
 
-db = Chroma(persist_directory="./db-hormozi",
-            embedding_function=embeddings)
-
-# # Create retriever
-retriever = db.as_retriever(
-    search_type="similarity",
-    search_kwargs= {"k": 5}
-)
+# db = Chroma(persist_directory="./db-hormozi",
+#             embedding_function=embeddings)
+#
+# # # Create retriever
+# retriever = db.as_retriever(
+#     search_type="similarity",
+#     search_kwargs= {"k": 5}
+# )
 
 # # Create Ollama language model - Gemma 2
 local_llm = 'gemma2:2b'
@@ -56,12 +61,18 @@ QUESTION: {question}
 ANSWER:"""
 prompt = ChatPromptTemplate.from_template(template)
 
-# Create the RAG chain using LCEL with prompt printing and streaming output
-rag_chain = (
-    {"context": retriever, "question": RunnablePassthrough()}
-    | prompt
-    | llm
-)
+# # Create the RAG chain using LCEL with prompt printing and streaming output
+# rag_chain = (
+#     {"context": retriever, "question": RunnablePassthrough()}
+#     | prompt
+#     | llm
+# )
+
+def get_chroma_db_path(dialog_id):
+    base_dir = Path("./db-hormozi")
+    dialog_dir = base_dir / dialog_id
+    dialog_dir.mkdir(parents=True, exist_ok=True)
+    return dialog_dir
 
 # Шаблон для обработки контекста
 def build_prompt(context, question):
@@ -159,6 +170,9 @@ def start_new_dialog(request):
     dialog_id = str(uuid.uuid4())  # Генерация уникального ID для нового диалога
     # Создаём первое сообщение для идентификации диалога
     DialogHistory.objects.create(user_id=user_id, dialog_id=dialog_id, role="system", content="New dialog started.")
+
+    # Создание отдельной базы данных
+    get_chroma_db_path(dialog_id)
     return {"dialog_id": dialog_id}
 
 @api.get("/dialogs/{dialog_id}")
@@ -172,11 +186,60 @@ def get_dialog_messages(request, dialog_id: str):
         ]
     }
 
+
+@api.post("/upload_files")
+def upload_files(request):
+    dialog_id = request.POST.get("dialog_id")
+    dialog_db_path = get_chroma_db_path(dialog_id).as_posix()  # Преобразуем Path в строку
+
+    uploaded_files = request.FILES.getlist("files")
+    upload_dir = Path(f"./llm_rag_project/txt_files/{dialog_id}")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    for uploaded_file in uploaded_files:
+        file_path = upload_dir / uploaded_file.name
+        with open(file_path, 'wb') as f:
+            for chunk in uploaded_file.chunks():
+                f.write(chunk)
+
+    # Создаем загрузчик документов
+    loader = DirectoryLoader(
+        path=upload_dir.as_posix(),  # Преобразуем Path в строку
+        glob="**/*.txt"
+    )
+
+    # Создаем разбиение текста на чанки
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1500,
+        chunk_overlap=300,
+        add_start_index=True,
+    )
+
+    # Индексация файлов
+    documents = loader.load()
+    texts = text_splitter.split_documents(documents)
+    vectorstore = Chroma.from_documents(
+        documents=texts,
+        embedding=embeddings,
+        persist_directory=dialog_db_path  # Убедитесь, что это строка
+    )
+    return {"status": "success"}
+
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
     question = payload.question
     dialog_id = payload.dialog_id  # Добавляем dialog_id из запроса
+    dialog_db_path = get_chroma_db_path(dialog_id).as_posix()
+    if not os.path.exists(dialog_db_path):
+        print(f"Database path does not exist: {dialog_db_path}")
+    db = Chroma(persist_directory=dialog_db_path, embedding_function=embeddings)
+    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 5})
     user_id = request.headers.get("X-User-ID", "default_user")
+
+    results = retriever.get_relevant_documents(question)
+    print(f"\nRetrieved {len(results)} relevant documents:")
+    for doc in results:
+        print(f"{doc.page_content}\n")
 
     if not dialog_id:
         return {"error": "Dialog ID is required."}
@@ -190,6 +253,12 @@ def ask_question(request, payload: QuestionSchema):
         user_id=user_id, dialog_id=dialog_id
     ).order_by("timestamp")
     messages = [{"role": entry.role, "content": entry.content} for entry in dialog_history]
+
+    rag_chain = (
+            {"context": retriever, "question": RunnablePassthrough()}
+            | prompt
+            | llm
+    )
 
     # Первый шаг: поиск в базе данных через RAG
     rag_answer = ""

@@ -91,6 +91,14 @@
             <button type="submit">Send</button>
         </form>
     </div>
+
+    <div class="upload-container">
+        <h3>Upload Files</h3>
+        <form id="upload-form" enctype="multipart/form-data">
+            <input type="file" id="file-input" multiple />
+            <button type="submit">Upload</button>
+        </form>
+    </div>
     <script>
         const chatWindow = document.getElementById('chat-window');
         const chatForm = document.getElementById('chat-form');
@@ -207,6 +215,34 @@
                 }
             } catch (error) {
                 addMessage('Error: Failed to connect to the server.', 'model');
+            }
+        });
+
+        document.getElementById('upload-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const files = document.getElementById('file-input').files;
+            if (!files.length || !currentDialogId) {
+                alert('Please select files and a dialog first.');
+                return;
+            }
+            const formData = new FormData();
+            for (const file of files) {
+                formData.append('files', file);
+            }
+            formData.append('dialog_id', currentDialogId);
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/upload_files', {
+                    method: 'POST',
+                    body: formData,
+                });
+                if (response.ok) {
+                    alert('Files uploaded and indexed successfully!');
+                } else {
+                    alert('Failed to upload files.');
+                }
+            } catch (error) {
+                console.error('Error uploading files:', error);
             }
         });
     </script>
