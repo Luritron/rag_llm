@@ -54,7 +54,7 @@
         /* Кнопка выбора файлов */
         input[type="file"] {
             padding: 5px;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             border: 1px solid #ddd;
             border-radius: 5px;
             cursor: pointer;
@@ -98,17 +98,41 @@
             border-radius: 8px;
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
             padding: 15px;
+            text-align: center; /* Центрируем содержимое */
         }
         .upload-container h3 {
             margin: 0 0 10px;
         }
+        .upload-container form {
+            display: flex;
+            flex-direction: column; /* Ставим элементы в колонку */
+            align-items: center; /* Центрируем элементы по горизонтали */
+            gap: 10px; /* Добавляем отступы между элементами */
+        }
+        .upload-container input[type="file"] {
+            padding: 5px;
+            font-size: 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+        }
         .upload-container button {
+            padding: 10px 20px;
+            border: none;
             background-color: #03dac6;
             color: #000;
+            border-radius: 5px;
             cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.3s, transform 0.2s;
         }
         .upload-container button:hover {
             background-color: #018786;
+            transform: scale(1.05);
+        }
+        .upload-container button:active {
+            background-color: #01695f;
+            transform: scale(0.95);
         }
         .chat {
             flex: 1;

@@ -2,6 +2,7 @@ import requests
 import re
 import os
 import uuid
+import fitz
 from pathlib import Path
 from tqdm import tqdm
 from .models import DialogHistory
@@ -12,7 +13,7 @@ from langchain_community.chat_models import ChatOllama
 from langchain_community.document_loaders import DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from langchain.schema import HumanMessage
+from langchain.schema import HumanMessage, Document
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
@@ -74,6 +75,13 @@ def get_chroma_db_path(dialog_id):
     dialog_dir = base_dir / dialog_id
     dialog_dir.mkdir(parents=True, exist_ok=True)
     return dialog_dir
+
+def extract_text_from_pdf(file_path):
+    text = ""
+    with fitz.open(file_path) as pdf:
+        for page in pdf:
+            text += page.get_text()
+    return text
 
 # Шаблон для обработки контекста
 def build_prompt(context, question):
@@ -197,19 +205,31 @@ def upload_files(request):
     upload_dir = Path(f"./llm_rag_project/txt_files/{dialog_id}")
     upload_dir.mkdir(parents=True, exist_ok=True)
 
+    documents = []  # Для хранения текстов из всех файлов
     for uploaded_file in uploaded_files:
         file_path = upload_dir / uploaded_file.name
         with open(file_path, 'wb') as f:
             for chunk in uploaded_file.chunks():
                 f.write(chunk)
 
-    # Создаем загрузчик документов
-    loader = DirectoryLoader(
-        path=upload_dir.as_posix(),  # Преобразуем Path в строку
-        glob="**/*.txt"
-    )
+        # Обработка PDF-файлов
+        if file_path.suffix.lower() == ".pdf":
+            pdf_text = extract_text_from_pdf(file_path)
+            documents.append(Document(page_content=pdf_text, metadata={"source": str(file_path)}))
+        elif file_path.suffix.lower() == ".txt":
+            with open(file_path, "r", encoding="utf-8") as txt_file:
+                text = txt_file.read()
+                documents.append(Document(page_content=text, metadata={"source": str(file_path)}))
+        else:
+            print(f"Unsupported file format: {file_path.suffix}")
 
-    documents = loader.load()
+    # Создаем загрузчик документов
+    # loader = DirectoryLoader(
+    #     path=upload_dir.as_posix(),  # Преобразуем Path в строку
+    #     glob="**/*.txt"
+    # )
+
+    # documents = loader.load()
     print(f"Loaded {len(documents)} documents.")
 
     # Создаем разбиение текста на чанки
