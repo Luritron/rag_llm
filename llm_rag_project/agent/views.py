@@ -6,6 +6,8 @@ import fitz
 from pathlib import Path
 from tqdm import tqdm
 from .models import DialogHistory
+from .tasks import process_uploaded_files
+from .utils import extract_text_from_pdf, get_chroma_db_path, embeddings
 from django.core.files.storage import default_storage
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -30,7 +32,7 @@ class QuestionSchema(BaseModel):
     dialog_id: str  # Добавляем поле dialog_id
 
 # # Create embeddingsclear
-embeddings = OllamaEmbeddings(model="nomic-embed-text", show_progress=False)
+# embeddings = OllamaEmbeddings(model="nomic-embed-text", show_progress=False)
 
 # db = Chroma(persist_directory="./db-hormozi",
 #             embedding_function=embeddings)
@@ -69,19 +71,19 @@ prompt = ChatPromptTemplate.from_template(template)
 #     | prompt
 #     | llm
 # )
-
-def get_chroma_db_path(dialog_id):
-    base_dir = Path("./db-hormozi")
-    dialog_dir = base_dir / dialog_id
-    dialog_dir.mkdir(parents=True, exist_ok=True)
-    return dialog_dir
-
-def extract_text_from_pdf(file_path):
-    text = ""
-    with fitz.open(file_path) as pdf:
-        for page in pdf:
-            text += page.get_text()
-    return text
+#
+# def get_chroma_db_path(dialog_id):
+#     base_dir = Path("./db-hormozi")
+#     dialog_dir = base_dir / dialog_id
+#     dialog_dir.mkdir(parents=True, exist_ok=True)
+#     return dialog_dir
+#
+# def extract_text_from_pdf(file_path):
+#     text = ""
+#     with fitz.open(file_path) as pdf:
+#         for page in pdf:
+#             text += page.get_text()
+#     return text
 
 # Шаблон для обработки контекста
 def build_prompt(context, question):
@@ -199,66 +201,21 @@ def get_dialog_messages(request, dialog_id: str):
 @api.post("/upload_files")
 def upload_files(request):
     dialog_id = request.POST.get("dialog_id")
-    dialog_db_path = get_chroma_db_path(dialog_id).as_posix()  # Преобразуем Path в строку
-
     uploaded_files = request.FILES.getlist("files")
     upload_dir = Path(f"./llm_rag_project/txt_files/{dialog_id}")
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    documents = []  # Для хранения текстов из всех файлов
+    file_paths = []
     for uploaded_file in uploaded_files:
         file_path = upload_dir / uploaded_file.name
         with open(file_path, 'wb') as f:
             for chunk in uploaded_file.chunks():
                 f.write(chunk)
+        file_paths.append(str(file_path))
 
-        # Обработка PDF-файлов
-        if file_path.suffix.lower() == ".pdf":
-            pdf_text = extract_text_from_pdf(file_path)
-            documents.append(Document(page_content=pdf_text, metadata={"source": str(file_path)}))
-        elif file_path.suffix.lower() == ".txt":
-            with open(file_path, "r", encoding="utf-8") as txt_file:
-                text = txt_file.read()
-                documents.append(Document(page_content=text, metadata={"source": str(file_path)}))
-        else:
-            print(f"Unsupported file format: {file_path.suffix}")
-
-    # Создаем загрузчик документов
-    # loader = DirectoryLoader(
-    #     path=upload_dir.as_posix(),  # Преобразуем Path в строку
-    #     glob="**/*.txt"
-    # )
-
-    # documents = loader.load()
-    print(f"Loaded {len(documents)} documents.")
-
-    # Создаем разбиение текста на чанки
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,
-        chunk_overlap=300,
-        add_start_index=True,
-    )
-
-    # Индексация файлов
-    # documents = loader.load()
-    # Индексация файлов с отображением прогресса
-    print("Splitting documents into chunks...")
-    texts = []
-    for doc in tqdm(documents, desc="Splitting documents", unit="document"):
-        chunks = text_splitter.split_documents([doc])
-        texts.extend(chunks)
-
-    print(f"Total chunks created: {len(texts)}")
-
-    # Сохранение в векторное хранилище
-    print(f"Persisting vector store to directory: {dialog_db_path}")
-    vectorstore = Chroma.from_documents(
-        documents=texts,
-        embedding=embeddings,
-        persist_directory=dialog_db_path  # Убедитесь, что это строка
-    )
-    print("Indexing completed successfully!")
-    return {"status": "success"}
+    # Отправляем задачу в Celery
+    process_uploaded_files.delay(dialog_id, file_paths)
+    return {"status": "Files uploaded and indexing started."}
 
 @api.post("/ask")
 def ask_question(request, payload: QuestionSchema):
