@@ -3,6 +3,7 @@ import re
 import os
 import uuid
 from pathlib import Path
+from tqdm import tqdm
 from .models import DialogHistory
 from django.core.files.storage import default_storage
 from langchain_community.embeddings import OllamaEmbeddings
@@ -208,6 +209,9 @@ def upload_files(request):
         glob="**/*.txt"
     )
 
+    documents = loader.load()
+    print(f"Loaded {len(documents)} documents.")
+
     # Создаем разбиение текста на чанки
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1500,
@@ -216,13 +220,24 @@ def upload_files(request):
     )
 
     # Индексация файлов
-    documents = loader.load()
-    texts = text_splitter.split_documents(documents)
+    # documents = loader.load()
+    # Индексация файлов с отображением прогресса
+    print("Splitting documents into chunks...")
+    texts = []
+    for doc in tqdm(documents, desc="Splitting documents", unit="document"):
+        chunks = text_splitter.split_documents([doc])
+        texts.extend(chunks)
+
+    print(f"Total chunks created: {len(texts)}")
+
+    # Сохранение в векторное хранилище
+    print(f"Persisting vector store to directory: {dialog_db_path}")
     vectorstore = Chroma.from_documents(
         documents=texts,
         embedding=embeddings,
         persist_directory=dialog_db_path  # Убедитесь, что это строка
     )
+    print("Indexing completed successfully!")
     return {"status": "success"}
 
 @api.post("/ask")
