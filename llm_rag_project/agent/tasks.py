@@ -67,6 +67,10 @@ def process_question(dialog_id, question, user_id):
     ).order_by("timestamp")
     messages = [{"role": entry.role, "content": entry.content} for entry in dialog_history]
 
+    # print("Dialog History:")
+    # for msg in messages:
+    #     print(f"{msg['role']}: {msg['content']}")
+
     rag_chain = (
             {"context": retriever, "question": RunnablePassthrough()}
             | prompt
@@ -80,6 +84,9 @@ def process_question(dialog_id, question, user_id):
     # formatted_answer = format_llm_answer(rag_answer.strip())
     # print(f"RAG Answer: {formatted_answer}")
 
+    print("Dialog History:")
+    for msg in messages:
+        print(f"{msg['role']}: {msg['content']}")
     # Проверка на релевантность ответа
     if is_rag_answer_unavailable(rag_answer):
         print("No relevant data found in the database. Searching online...")
