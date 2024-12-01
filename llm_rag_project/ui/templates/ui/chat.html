@@ -225,6 +225,17 @@
         const newDialogBtn = document.getElementById('new-dialog-btn');
         let currentDialogId = null;
 
+        function checkTaskStatus(taskId) {
+            const interval = setInterval(async () => {
+                const response = await fetch(`/api/task_status/${taskId}`);
+                const data = await response.json();
+                if (data.status === 'completed') {
+                    clearInterval(interval);
+                    addMessage(data.result, 'model');
+                }
+            }, 2000); // Периодичность 2 секунды
+        }
+
         // Загрузка списка диалогов
         async function loadDialogs() {
             try {
@@ -295,15 +306,41 @@
         // Инициализация
         loadDialogs();
 
-        // Функция для добавления сообщения в окно чата
+        // // Функция для добавления сообщения в окно чата
+        // function addMessage(content, sender) {
+        //     const messageDiv = document.createElement('div');
+        //     messageDiv.className = `message ${sender}`;
+        //
+        //     // Check if the content is an object, and handle it appropriately
+        //     if (typeof content === 'object') {
+        //         messageDiv.textContent = JSON.stringify(content, null, 2); // Convert object to a readable JSON string
+        //     } else {
+        //         messageDiv.textContent = content; // Use plain text for strings
+        //     }
+        //
+        //     chatWindow.appendChild(messageDiv);
+        //     chatWindow.scrollTop = chatWindow.scrollHeight; // Scroll to the bottom
+        // }
         function addMessage(content, sender) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
-            messageDiv.innerHTML = content; // Используем innerHTML для отображения HTML
-            // messageDiv.textContent = content;
+
+            // Check if the content is an object, and handle it appropriately
+            if (typeof content === 'object') {
+                messageDiv.innerHTML = JSON.stringify(content, null, 2); // Convert object to a readable JSON string
+            } else {
+                messageDiv.innerHTML = content; // Render HTML content
+            }
+
+            // Avoid duplicates by checking if the message already exists
+            if ([...chatWindow.children].some(msg => msg.textContent === messageDiv.textContent)) {
+                return; // Don't add duplicates
+            }
+
             chatWindow.appendChild(messageDiv);
-            chatWindow.scrollTop = chatWindow.scrollHeight; // Скроллим вниз
+            chatWindow.scrollTop = chatWindow.scrollHeight; // Scroll to the bottom
         }
+
 
         // Обработка отправки формы
         chatForm.addEventListener('submit', async (e) => {
@@ -327,7 +364,12 @@
                 });
                 if (response.ok) {
                     const data = await response.json();
-                    addMessage(data.answer, 'model'); // Отображаем ответ модели в интерфейсе
+                    if (data.task_id) {
+                        checkTaskStatus(data.task_id);
+                    } else {
+                        console.error('Task ID not found in the response');
+                        addMessage('Error: Task ID missing.', 'model');
+                    }
                 } else {
                     addMessage('Error: Could not get a response from the model.', 'model');
                 }

@@ -11,6 +11,8 @@ from .utils import extract_text_from_pdf, get_chroma_db_path, embeddings, format
 
 from pydantic import BaseModel
 from ninja import NinjaAPI
+from django.http import JsonResponse
+from celery.result import AsyncResult
 
 # API Ninja
 api = NinjaAPI()
@@ -19,21 +21,22 @@ class QuestionSchema(BaseModel):
     question: str
     dialog_id: str  # Добавляем поле dialog_id
 
-# Шаблон для обработки контекста
-def build_prompt(context, question):
-    return (
-        f"""<bos><start_of_turn>user\nAnswer the question based only on the following context and extract out a meaningful answer. \
-        Please write in full sentences with correct spelling and punctuation. if it makes sense use lists. \
-        Please respond with the exact phrase "unable to find an answer" if the context does not provide an answer. Do not include any other text and gaps, spaces, symblos of \"\\n"\".\
-        Just a short and fully clear "unable to find an answer" answer.\n\n\
-        CONTEXT: {context}
-
-        QUESTION: {question}
-
-        <end_of_turn>
-        <start_of_turn>model\n
-        ANSWER:"""
-    )
+# @api.get("/task_status/{task_id}")
+# def check_task_status(request, task_id):
+#     task_result = AsyncResult(task_id)
+#     if task_result.state == 'SUCCESS':
+#         return JsonResponse({'status': 'completed', 'result': task_result.result})
+#     return JsonResponse({'status': task_result.state})
+@api.get("/task_status/{task_id}")
+def check_task_status(request, task_id):
+    task_result = AsyncResult(task_id)
+    if task_result.state == 'SUCCESS':
+        # Ensure the result is serialized correctly
+        result = task_result.result
+        if isinstance(result, dict):
+            result = result.get("answer", "No answer available")  # Extract specific data if it's a dict
+        return JsonResponse({'status': 'completed', 'result': result})
+    return JsonResponse({'status': task_result.state})
 
 @api.get("/dialogs")
 def list_dialogs(request):
@@ -68,7 +71,6 @@ def get_dialog_messages(request, dialog_id: str):
         ]
     }
 
-
 @api.post("/upload_files")
 def upload_files(request):
     dialog_id = request.POST.get("dialog_id")
@@ -95,4 +97,4 @@ def ask_question(request, payload: QuestionSchema):
     user_id = request.headers.get("X-User-ID", "default_user")
 
     task = process_question.delay(dialog_id, question, user_id)
-    return {"task_id": task.id, "status": "processing"}
+    return {"task_id": task.id, "status": "completed"}
