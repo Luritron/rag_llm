@@ -185,6 +185,10 @@
         .chat-input button:hover {
             background-color: #3700b3;
         }
+        .chat-window .message.processing {
+            font-family: "Noto Sans", Arial, sans-serif;
+            color: #777;
+        }
     </style>
 </head>
 <body>
@@ -231,9 +235,28 @@
                 const data = await response.json();
                 if (data.status === 'completed') {
                     clearInterval(interval);
+                    removeProcessingMessage();
                     addMessage(data.result, 'model');
                 }
             }, 2000); // Периодичность 2 секунды
+        }
+
+        // Function to add a temporary "Processing..." message
+        function addProcessingMessage() {
+            const processingDiv = document.createElement('div');
+            processingDiv.className = 'message model processing';
+            processingDiv.textContent = 'Processing...';
+            processingDiv.id = 'processing-message'; // Assign an ID for easy removal
+            chatWindow.appendChild(processingDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        // Function to remove the "Processing..." message
+        function removeProcessingMessage() {
+            const processingDiv = document.getElementById('processing-message');
+            if (processingDiv) {
+                processingDiv.remove();
+            }
         }
 
         // Загрузка списка диалогов
@@ -352,6 +375,7 @@
             }
 
             addMessage(question, 'user'); // Отображаем сообщение пользователя в интерфейсе
+            addProcessingMessage(); // Add "Processing..." message
             userInput.value = ''; // Очищаем поле ввода
 
             try {
@@ -369,12 +393,15 @@
                     } else {
                         console.error('Task ID not found in the response');
                         addMessage('Error: Task ID missing.', 'model');
+                        removeProcessingMessage();
                     }
                 } else {
                     addMessage('Error: Could not get a response from the model.', 'model');
+                    removeProcessingMessage();
                 }
             } catch (error) {
                 addMessage('Error: Failed to connect to the server.', 'model');
+                removeProcessingMessage();
             }
         });
 
