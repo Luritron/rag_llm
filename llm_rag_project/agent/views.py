@@ -228,6 +228,14 @@ def ask_question(request, payload: QuestionSchema):
     retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 5})
     user_id = request.headers.get("X-User-ID", "default_user")
 
+    # Преобразование команды @plan и @test перед записью в базу данных
+    if question.startswith("@plan"):
+        topic = question.replace("@plan", "").strip()
+        question = f"Please create a detailed learning plan for the topic: {topic}."
+    elif question.startswith("@test"):
+        topic = question.replace("@test", "").strip()
+        question = f"Please create a test with questions and answers for the topic: {topic}."
+
     results = retriever.get_relevant_documents(question)
     print(f"\nRetrieved {len(results)} relevant documents:")
     for doc in results:
