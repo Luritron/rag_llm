@@ -24,7 +24,7 @@ def process_uploaded_files(dialog_id, file_paths):
                 documents.append(Document(page_content=text, metadata={"source": str(file_path)}))
 
     # Разбиение текста на чанки
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300, add_start_index=True)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, add_start_index=True)
     texts = []
     for doc in documents:
         chunks = text_splitter.split_documents([doc])

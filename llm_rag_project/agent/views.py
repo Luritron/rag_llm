@@ -238,8 +238,8 @@ def ask_question(request, payload: QuestionSchema):
 
     results = retriever.get_relevant_documents(question)
     print(f"\nRetrieved {len(results)} relevant documents:")
-    for doc in results:
-        print(f"{doc.page_content}\n")
+    # for doc in results:
+    #     print(f"{doc.page_content}\n")
 
     if not dialog_id:
         return {"error": "Dialog ID is required."}
